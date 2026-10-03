@@ -153,6 +153,10 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
 .exp-row { display: flex; gap: 8px; align-items: stretch; }
 .exp-row input { flex: 1; min-width: 0; min-height: 44px; }
 .exp-row .btn { white-space: nowrap; }
+.clr { position: relative; display: block; min-width: 0; flex: 1; }
+.clr input { padding-right: 44px; }
+.clr-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.clr-btn:hover { color: var(--ink); background: var(--sunken); }
 .multi { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 .dup { border: 1.5px solid var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
@@ -505,6 +509,19 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       <div class="list">${list.slice(0, 30).map((i) => itemRow(i)).join("")}</div>`;
   }
 
+  // ---------- clear (×) button for name boxes ----------
+  function addClear(input) {
+    if (!input || input.parentNode.classList.contains("clr")) return;
+    const wrap = document.createElement("span"); wrap.className = "clr";
+    input.parentNode.insertBefore(wrap, input); wrap.appendChild(input);
+    const b = document.createElement("button"); b.type = "button"; b.className = "clr-btn"; b.setAttribute("aria-label", "Clear"); b.textContent = "×";
+    wrap.appendChild(b);
+    input.addEventListener("input", () => { b.hidden = !input.value; }); b.hidden = !input.value;
+    b.addEventListener("click", (e) => { e.preventDefault(); input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true })); input.focus(); });
+  }
+  // values filled in from code (photo reading, quick buttons) don't fire input events
+  setInterval(() => document.querySelectorAll(".clr").forEach((w) => { w.lastChild.hidden = !w.firstChild.value; }), 500);
+
   // ---------- UI bits ----------
   let toastT;
   function toast(msg) {
@@ -810,7 +827,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     </form></div>`;
     locOptions($("e-loc"), { selected: it.locationId });
     const dupE = () => { $("e-dup").innerHTML = keyOf($("e-name").value) === it.key ? "" : dupPanelHTML($("e-name").value, { excludeId: id }); };
-    $("e-name").addEventListener("input", dupE);
+    $("e-name").addEventListener("input", dupE); addClear($("e-name"));
     $("e-close").onclick = closeSheet;
     $("sheet-bg").addEventListener("click", (e) => { if (e.target.id === "sheet-bg") closeSheet(); });
     $("e-del").onclick = (e) => armed(e.currentTarget, "Tap again to delete", async () => { if (await delItem(id)) { dropPhoto(it.photo); closeSheet(); toast("Deleted " + it.name); } });
@@ -1115,6 +1132,8 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     $("qa-text").value = ""; renderQA();
     toast(`Saved ${n} of ${todo.length} items to ${S.locs.get(id)?.code}`);
   };
+
+  ["i-name", "l-name", "sub-name", "loc-rename"].forEach((id) => addClear($(id)));
 
   // ---------- boot ----------
   try { const t = localStorage.getItem("khw-tab"); if (t && ["find", "locs", "add", "check"].includes(t)) S.tab = t; } catch (e) {}
