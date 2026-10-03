@@ -1,0 +1,766 @@
+<title>Ken's Home Warehouse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one-column warehouse console. Sticky search + tab bar on top, rack-label codes on every location. */
+:root {
+  --bg: #e9ece8;
+  --surface: #ffffff;
+  --sunken: #f3f5f2;
+  --ink: #1b2320;
+  --muted: #5d6a64;
+  --line: #d3d9d4;
+  --accent: #1f5f73;
+  --accent-ink: #ffffff;
+  --label: #f2c230;
+  --label-ink: #1b1a12;
+  --warn-bg: #fff3d6;
+  --warn-line: #e3b54a;
+  --warn-ink: #6b4a00;
+  --bad-bg: #fde4e1;
+  --bad-ink: #9b2618;
+  --ok-ink: #1d6b3d;
+  --shadow: 0 1px 2px rgba(20, 30, 25, .08), 0 4px 16px rgba(20, 30, 25, .06);
+  --f-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141917; --surface: #1c2320; --sunken: #171d1a; --ink: #e6ece8; --muted: #9aa8a1; --line: #2e3833;
+    --accent: #5fb2cc; --accent-ink: #0d1a1f; --label: #e8b923; --label-ink: #1b1a12;
+    --warn-bg: #3a2f12; --warn-line: #8a6a1c; --warn-ink: #f3d68c; --bad-bg: #3d1d19; --bad-ink: #ffb4a8; --ok-ink: #7fd4a0;
+    --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141917; --surface: #1c2320; --sunken: #171d1a; --ink: #e6ece8; --muted: #9aa8a1; --line: #2e3833;
+  --accent: #5fb2cc; --accent-ink: #0d1a1f; --label: #e8b923; --label-ink: #1b1a12;
+  --warn-bg: #3a2f12; --warn-line: #8a6a1c; --warn-ink: #f3d68c; --bad-bg: #3d1d19; --bad-ink: #ffb4a8; --ok-ink: #7fd4a0;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: 0 64px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 14px 8px; display: grid; gap: 10px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand h1 { margin: 0; font: 700 26px/1 var(--f-display); letter-spacing: .02em; text-transform: uppercase; text-wrap: balance; }
+.brand h1 span { color: var(--accent); }
+.brand .stat { font: 500 12px/1 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.search { position: relative; }
+.search input { width: 100%; padding: 13px 14px 13px 42px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 16px; }
+.search input:focus { border-color: var(--accent); outline: none; }
+.search svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; stroke: var(--muted); fill: none; stroke-width: 2; }
+nav.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+nav.tabs button { border: 0; background: transparent; padding: 8px 4px; border-radius: 7px; font: 600 13px/1.2 var(--f-body); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
+nav.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.badge { font: 600 11px/1 var(--f-mono); background: var(--warn-line); color: var(--label-ink); border-radius: 99px; padding: 3px 6px; }
+
+main section { display: grid; gap: 14px; padding-top: 8px; }
+h2 { margin: 6px 0 0; font: 700 18px/1.2 var(--f-display); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+.tag { display: inline-block; font: 600 12px/1 var(--f-mono); background: var(--label); color: var(--label-ink); padding: 4px 6px 3px; border-radius: 3px; letter-spacing: .03em; white-space: nowrap; }
+.crumbs { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.crumbs button { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
+
+.list { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 12px 14px; border: 0; border-top: 1px solid var(--line); background: transparent; text-align: left; cursor: pointer; width: 100%; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--sunken); }
+.row .name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.row .where { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); min-width: 0; }
+.qty { font: 600 14px/1 var(--f-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.qty b { color: var(--ink); }
+mark { background: color-mix(in srgb, var(--label) 55%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+.grid-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.room { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; text-align: left; cursor: pointer; display: grid; gap: 8px; align-content: start; }
+.room:hover { border-color: var(--accent); }
+.room .rn { font: 700 20px/1.1 var(--f-display); text-transform: uppercase; letter-spacing: .02em; overflow-wrap: anywhere; }
+.room .rc { font: 500 12px/1.3 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.loc-head { display: grid; gap: 6px; }
+.loc-head .title { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.loc-head h3 { margin: 0; font: 700 28px/1.05 var(--f-display); text-transform: uppercase; letter-spacing: .02em; overflow-wrap: anywhere; }
+
+label.f { display: grid; gap: 5px; font-size: 13px; font-weight: 600; color: var(--muted); min-width: 0; }
+input.in, select.in, textarea.in { width: 100%; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 16px; font-weight: 400; color: var(--ink); }
+input.in:focus, select.in:focus, textarea.in:focus { border-color: var(--accent); outline: none; }
+textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); font-size: 14px; }
+.fields { display: grid; grid-template-columns: 1fr 110px; gap: 10px; }
+.fields .wide { grid-column: 1 / -1; }
+@media (max-width: 460px) { .fields { grid-template-columns: 1fr 84px; } }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn { border: 1.5px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--bad-ink); }
+.btn.danger.armed { background: var(--bad-ink); border-color: var(--bad-ink); color: var(--surface); }
+.btn.sm { padding: 6px 10px; font-size: 13px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px dashed var(--line); background: transparent; border-radius: 99px; padding: 5px 11px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.chip:hover { border-color: var(--accent); color: var(--ink); }
+
+.dup { border: 1.5px solid var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
+.dup.hard { border-color: var(--bad-ink); background: var(--bad-bg); color: var(--bad-ink); }
+.dup strong { font-weight: 600; }
+.dup .m { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; background: var(--surface); color: var(--ink); border-radius: 8px; padding: 8px 10px; }
+.dup .m > div { min-width: 0; display: grid; gap: 2px; }
+.score { font: 600 11px/1 var(--f-mono); color: var(--muted); }
+
+.qa-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 14px; }
+.qa-row:first-child { border-top: 0; }
+.qa-row .st { font: 600 11px/1.2 var(--f-mono); text-transform: uppercase; letter-spacing: .04em; }
+.st.new { color: var(--ok-ink); } .st.warn { color: var(--warn-ink); } .st.same { color: var(--accent); }
+.qa-row .why { font-size: 12px; color: var(--muted); }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stats div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.stats b { display: block; font: 700 30px/1 var(--f-display); font-variant-numeric: tabular-nums; }
+.stats span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.empty { padding: 24px 16px; text-align: center; color: var(--muted); display: grid; gap: 10px; justify-items: center; }
+.empty .big { font: 700 22px/1.1 var(--f-display); text-transform: uppercase; color: var(--ink); }
+
+.sheet-bg { position: fixed; inset: 0; background: rgba(10, 15, 12, .45); z-index: 20; display: grid; align-items: end; justify-items: center; }
+.sheet { background: var(--surface); width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; border-radius: 16px 16px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 12px; }
+@media (min-width: 600px) { .sheet-bg { align-items: center; } .sheet { border-radius: 16px; } }
+.sheet h3 { margin: 0; font: 700 22px/1.1 var(--f-display); text-transform: uppercase; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; z-index: 30; max-width: calc(100% - 32px); }
+.banner { background: var(--bad-bg); color: var(--bad-ink); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: up .18s ease-out; } @keyframes up { from { transform: translateY(16px); opacity: .6; } } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Ken's Home <span>Warehouse</span></h1>
+      <div class="stat" id="stat">Loading inventory…</div>
+    </div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <input id="q" type="search" placeholder="Where is my… (passport, HDMI cable, drill)" autocomplete="off" aria-label="Search items and locations">
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="find" aria-selected="true">Find</button>
+      <button role="tab" data-tab="locs" aria-selected="false">Locations</button>
+      <button role="tab" data-tab="add" aria-selected="false">Register</button>
+      <button role="tab" data-tab="check" aria-selected="false">Clean-up <span class="badge" id="dupcount" hidden>0</span></button>
+    </nav>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main>
+    <section id="v-find"></section>
+
+    <section id="v-locs" hidden>
+      <div id="locs-body"></div>
+      <div class="panel" id="loc-tools" hidden>
+        <h2 style="margin:0">Quick add items here</h2>
+        <p class="muted small" style="margin:0">One item per line. Add a quantity with <code>x3</code> at the end, like <code>AA batteries x8</code>. Each line is checked against what you already have before anything is saved.</p>
+        <textarea id="qa-text" class="in" placeholder="Phone chargers x3&#10;Spare house keys&#10;Christmas lights x2"></textarea>
+        <div id="qa-preview" class="list" hidden></div>
+        <div class="actions"><button class="btn primary" id="qa-save" disabled>Save items</button><span class="muted small" id="qa-note"></span></div>
+      </div>
+      <div class="panel" id="sub-tools">
+        <h2 style="margin:0" id="sub-title">Add a room</h2>
+        <div class="actions" style="flex-wrap:nowrap">
+          <input id="sub-name" class="in" placeholder="e.g. Master bedroom" autocomplete="off">
+          <button class="btn primary" id="sub-add">Add</button>
+        </div>
+        <div id="sub-dup"></div>
+        <div class="chips" id="sub-chips"></div>
+      </div>
+      <div class="panel" id="loc-manage" hidden>
+        <h2 style="margin:0">Manage this location</h2>
+        <div class="actions" style="flex-wrap:nowrap">
+          <input id="loc-rename" class="in" autocomplete="off" aria-label="Location name">
+          <button class="btn" id="loc-rename-btn">Rename</button>
+        </div>
+        <div id="loc-rename-dup"></div>
+        <div class="actions"><button class="btn danger" id="loc-del">Delete location</button><span class="muted small" id="loc-del-note"></span></div>
+      </div>
+    </section>
+
+    <section id="v-add" hidden>
+      <form class="panel" id="f-item" autocomplete="off">
+        <h2 style="margin:0">Register an item</h2>
+        <div class="fields">
+          <label class="f">Item name<input id="i-name" class="in" required placeholder="e.g. Extension cord 5m"></label>
+          <label class="f">Qty<input id="i-qty" class="in" type="number" min="1" step="1" value="1"></label>
+          <div class="wide" id="i-dup"></div>
+          <label class="f wide">Stored at<select id="i-loc" class="in" required></select></label>
+          <label class="f">Category <input id="i-cat" class="in" list="cats" placeholder="Optional"></label>
+          <span></span>
+          <label class="f wide">Note<input id="i-note" class="in" placeholder="Optional, e.g. warranty card inside the box"></label>
+        </div>
+        <div class="actions"><button class="btn primary" id="i-save" type="submit">Save item</button><span class="small muted" id="i-msg"></span></div>
+      </form>
+      <form class="panel" id="f-loc" autocomplete="off">
+        <h2 style="margin:0">Register a location</h2>
+        <p class="muted small" style="margin:0">Build it like a warehouse: room, then furniture, then shelf or box. Each gets a short code you can write on a label.</p>
+        <div class="fields">
+          <label class="f wide">Location name<input id="l-name" class="in" required placeholder="e.g. Wardrobe, Top shelf, Blue box"></label>
+          <label class="f wide">Inside<select id="l-parent" class="in"></select></label>
+          <div class="wide" id="l-dup"></div>
+        </div>
+        <div class="actions"><button class="btn primary" type="submit">Save location</button></div>
+      </form>
+      <datalist id="cats"></datalist>
+    </section>
+
+    <section id="v-check" hidden></section>
+  </main>
+</div>
+<div id="sheet-root"></div>
+
+<script>
+(function () {
+  "use strict";
+  // ---------- state ----------
+  const S = { locs: new Map(), items: new Map(), ignored: {}, tab: "find", locId: null, ready: { l: false, i: false } };
+  let db = null, downloads = null;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const now = () => Date.now();
+
+  // ---------- name matching ----------
+  const STOP = new Set(["a", "an", "the", "of", "and", "for", "my", "with"]);
+  function singular(w) {
+    if (w.length <= 3) return w;
+    if (w.endsWith("ies")) return w.slice(0, -3) + "y";
+    if (/(ches|shes|xes|sses|zes)$/.test(w)) return w.slice(0, -2);
+    if (w.endsWith("s") && !w.endsWith("ss") && !w.endsWith("us")) return w.slice(0, -1);
+    return w;
+  }
+  function tokens(s) {
+    return String(s || "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter((t) => t && !STOP.has(t)).map(singular);
+  }
+  const keyOf = (s) => tokens(s).join(" ");
+  function lev(a, b) {
+    if (a === b) return 0;
+    const m = a.length, n = b.length;
+    if (!m) return n; if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j), cur = new Array(n + 1);
+    for (let i = 1; i <= m; i++) {
+      cur[0] = i;
+      for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      [prev, cur] = [cur, prev];
+    }
+    return prev[n];
+  }
+  // 0..1 similarity between two names
+  function sim(a, b) {
+    const ka = keyOf(a), kb = keyOf(b);
+    if (!ka || !kb) return 0;
+    if (ka === kb) return 1;
+    const ta = new Set(ka.split(" ")), tb = new Set(kb.split(" "));
+    let inter = 0; ta.forEach((t) => { if (tb.has(t)) inter++; });
+    const jac = inter / new Set([...ta, ...tb]).size;
+    const cover = inter / Math.min(ta.size, tb.size); // "hdmi cable" vs "long hdmi cable"
+    const squashA = ka.replace(/ /g, ""), squashB = kb.replace(/ /g, "");
+    const lr = 1 - lev(squashA, squashB) / Math.max(squashA.length, squashB.length);
+    let s = Math.max(jac, lr, cover * 0.85);
+    if (squashA === squashB) s = 0.98; // "screw driver" vs "screwdriver"
+    return s;
+  }
+  const SIMILAR = 0.72;
+
+  // ---------- location helpers ----------
+  function childrenOf(pid) {
+    const out = [];
+    S.locs.forEach((l) => { if ((l.parentId || null) === (pid || null)) out.push(l); });
+    return out.sort((a, b) => (a.code || "").localeCompare(b.code || "", undefined, { numeric: true }));
+  }
+  function pathOf(id) {
+    const out = []; let cur = S.locs.get(id), guard = 0;
+    while (cur && guard++ < 20) { out.unshift(cur); cur = cur.parentId ? S.locs.get(cur.parentId) : null; }
+    return out;
+  }
+  const pathText = (id) => pathOf(id).map((l) => l.name).join(" › ") || "Unknown location";
+  function descendants(id) {
+    const out = [id]; for (let i = 0; i < out.length; i++) childrenOf(out[i]).forEach((c) => out.push(c.id)); return out;
+  }
+  function itemsIn(id, deep) {
+    const set = new Set(deep ? descendants(id) : [id]); const out = [];
+    S.items.forEach((it) => { if (set.has(it.locationId)) out.push(it); });
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  function letterCode(n) { let s = ""; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+  function nextCode(pid) {
+    const sibs = childrenOf(pid);
+    if (!pid) {
+      const used = new Set(sibs.map((s) => s.code)); let i = 0; while (used.has(letterCode(i))) i++; return letterCode(i);
+    }
+    const p = S.locs.get(pid); let max = 0;
+    sibs.forEach((s) => { const m = /-(\d+)$/.exec(s.code || ""); if (m) max = Math.max(max, +m[1]); });
+    return (p.code || "X") + "-" + String(max + 1).padStart(2, "0");
+  }
+  function locOptions(sel, { includeRoot, selected, exclude } = {}) {
+    const ex = exclude ? new Set(descendants(exclude)) : new Set();
+    let html = includeRoot ? '<option value="">— Nothing, this is a room —</option>' : '<option value="" disabled>Choose a location…</option>';
+    const walk = (pid, depth) => childrenOf(pid).forEach((l) => {
+      if (ex.has(l.id)) return;
+      html += `<option value="${esc(l.id)}">${" ".repeat(depth)}${esc(l.code)} · ${esc(l.name)}</option>`;
+      walk(l.id, depth + 1);
+    });
+    walk(null, 0);
+    const keep = selected !== undefined ? selected : sel.value;
+    sel.innerHTML = html;
+    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    else if (!includeRoot) sel.value = "";
+  }
+
+  // ---------- duplicate detection ----------
+  function itemMatches(name, { excludeId } = {}) {
+    const k = keyOf(name); if (!k) return { exact: [], similar: [] };
+    const exact = [], similar = [];
+    S.items.forEach((it) => {
+      if (it.id === excludeId) return;
+      if (it.key === k) exact.push(it);
+      else { const s = sim(name, it.name); if (s >= SIMILAR) similar.push({ it, s }); }
+    });
+    similar.sort((a, b) => b.s - a.s);
+    return { exact, similar: similar.slice(0, 5) };
+  }
+  function locSibling(name, pid, excludeId) {
+    const k = keyOf(name);
+    return childrenOf(pid).find((l) => l.id !== excludeId && keyOf(l.name) === k);
+  }
+  function dupPairs() {
+    const arr = [...S.items.values()], out = [];
+    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+      const a = arr[i], b = arr[j];
+      const pk = [a.id, b.id].sort().join("|");
+      if (S.ignored[pk]) continue;
+      const s = a.key === b.key ? 1 : sim(a.name, b.name);
+      if (s >= SIMILAR) out.push({ a, b, s, pk });
+    }
+    return out.sort((x, y) => y.s - x.s);
+  }
+
+  // ---------- writes ----------
+  async function write(fn, okMsg) {
+    if (!db) { toast("Storage isn't connected in this view."); return false; }
+    try { await fn(); if (okMsg) toast(okMsg); return true; }
+    catch (e) {
+      const c = e && e.code;
+      toast(c === "quota_exceeded" ? "Storage is full. Delete some old entries and try again."
+        : c === "invalid_argument" ? "You don't have permission to change this inventory."
+        : "Couldn't save. Check your connection and try again.");
+      return false;
+    }
+  }
+  const addItem = (data) => write(() => db.collection("items").add({ ...data, key: keyOf(data.name), createdAt: now(), updatedAt: now() }));
+  const updItem = (id, data) => write(() => db.doc("items/" + id).update({ ...data, ...(data.name ? { key: keyOf(data.name) } : {}), updatedAt: now() }));
+  const delItem = (id) => write(() => db.doc("items/" + id).delete());
+
+  // ---------- UI bits ----------
+  let toastT;
+  function toast(msg) {
+    let t = document.querySelector(".toast");
+    if (!t) { t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+    t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+  // two-tap confirm (dialogs are disabled in the viewer)
+  function armed(btn, label, fn) {
+    if (btn.classList.contains("armed")) { btn.classList.remove("armed"); fn(); return; }
+    const orig = btn.textContent; btn.classList.add("armed"); btn.textContent = label;
+    setTimeout(() => { if (btn.isConnected) { btn.classList.remove("armed"); btn.textContent = orig; } }, 3500);
+  }
+  const tag = (code) => `<span class="tag">${esc(code || "—")}</span>`;
+  function hl(text, q) {
+    const t = esc(text); const qs = tokens(q).filter((x) => x.length > 1); if (!qs.length) return t;
+    const re = new RegExp("(" + qs.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "gi");
+    return t.replace(re, "<mark>$1</mark>");
+  }
+  function itemRow(it, q) {
+    const loc = S.locs.get(it.locationId);
+    return `<button class="row" data-item="${esc(it.id)}">
+      <span class="name">${hl(it.name, q || "")}</span>
+      <span class="qty">×<b>${esc(it.qty ?? 1)}</b></span>
+      <span class="where">${tag(loc && loc.code)} <span>${esc(pathText(it.locationId))}</span>${it.category ? ` · <span>${hl(it.category, q || "")}</span>` : ""}</span>
+    </button>`;
+  }
+
+  // ---------- views ----------
+  function setTab(t) {
+    S.tab = t;
+    document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
+    ["find", "locs", "add", "check"].forEach((x) => { $("v-" + x).hidden = x !== t; });
+    try { localStorage.setItem("khw-tab", t); } catch (e) {}
+    renderAll();
+  }
+
+  function renderHeader() {
+    const n = S.items.size, q = [...S.items.values()].reduce((s, i) => s + (Number(i.qty) || 0), 0);
+    $("stat").textContent = (S.ready.l && S.ready.i) || !db ? `${n} items · ${q} pcs · ${S.locs.size} locations` : "Loading inventory…";
+    const d = dupPairs().length; const b = $("dupcount"); b.hidden = !d; b.textContent = d;
+    const cats = new Set(); S.items.forEach((i) => i.category && cats.add(i.category));
+    $("cats").innerHTML = [...cats].sort().map((c) => `<option value="${esc(c)}">`).join("");
+  }
+
+  function renderFind() {
+    const q = $("q").value.trim(); const el = $("v-find");
+    if (!q) {
+      const recent = [...S.items.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 10);
+      const pcs = [...S.items.values()].reduce((s, i) => s + (Number(i.qty) || 0), 0);
+      if (!S.items.size && !S.locs.size) {
+        el.innerHTML = `<div class="panel empty"><div class="big">Your warehouse is empty</div>
+          <div>Start by adding your rooms, then the cupboards, shelves and boxes inside them. After that, register what you keep in each one.</div>
+          <button class="btn primary" data-go="locs">Set up rooms</button></div>`;
+        return;
+      }
+      el.innerHTML = `<div class="stats"><div><b>${S.items.size}</b><span>Items</span></div><div><b>${pcs}</b><span>Pieces</span></div><div><b>${S.locs.size}</b><span>Locations</span></div></div>
+        <h2>Recently updated</h2>
+        ${recent.length ? `<div class="list">${recent.map((i) => itemRow(i)).join("")}</div>` : `<div class="panel empty">No items yet. <button class="btn primary" data-go="add">Register your first item</button></div>`}`;
+      return;
+    }
+    const qt = tokens(q), qk = qt.join(" ");
+    const scored = [];
+    S.items.forEach((it) => {
+      const loc = S.locs.get(it.locationId);
+      const hay = keyOf([it.name, it.category, it.note, pathText(it.locationId), loc && loc.code].join(" "));
+      let s = 0;
+      if (it.key === qk) s = 3;
+      else if (qt.every((t) => hay.includes(t))) s = 2 + (it.key.includes(qk) ? 0.5 : 0);
+      else { const v = sim(q, it.name); if (v >= 0.6) s = v; }
+      if (s) scored.push({ it, s });
+    });
+    scored.sort((a, b) => b.s - a.s || a.it.name.localeCompare(b.it.name));
+    const locHits = [...S.locs.values()].filter((l) => { const h = keyOf(l.name + " " + l.code); return qt.every((t) => h.includes(t)) || (l.code || "").toLowerCase() === q.toLowerCase(); }).slice(0, 6);
+    el.innerHTML = `
+      ${locHits.length ? `<h2>Locations</h2><div class="list">${locHits.map((l) => `<button class="row" data-loc="${esc(l.id)}"><span class="name">${hl(l.name, q)}</span><span class="qty">${itemsIn(l.id, true).length} items</span><span class="where">${tag(l.code)} ${esc(pathText(l.id))}</span></button>`).join("")}</div>` : ""}
+      <h2>Items <span class="muted small" style="text-transform:none;letter-spacing:0">${scored.length} found</span></h2>
+      ${scored.length ? `<div class="list">${scored.slice(0, 60).map((x) => itemRow(x.it, q)).join("")}</div>`
+        : `<div class="panel empty">Nothing called “${esc(q)}” is registered yet.<button class="btn primary" data-additem="${esc(q)}">Register “${esc(q)}”</button></div>`}`;
+  }
+
+  const ROOM_SUGGEST = ["Living room", "Kitchen", "Master bedroom", "Bedroom 2", "Bathroom", "Store room", "Utility area", "Balcony", "Car porch", "Study room"];
+  const SUB_SUGGEST = ["Cabinet", "Wardrobe", "Drawer 1", "Top shelf", "Bottom shelf", "Under the bed", "Storage box 1", "Rack"];
+
+  function renderLocs() {
+    const id = S.locId && S.locs.has(S.locId) ? S.locId : null; S.locId = id;
+    const body = $("locs-body");
+    $("loc-tools").hidden = !id; $("loc-manage").hidden = !id;
+    $("sub-title").textContent = id ? "Add a spot inside " + S.locs.get(id).name : "Add a room";
+    $("sub-name").placeholder = id ? "e.g. Top shelf, Drawer 2, Blue box" : "e.g. Master bedroom";
+    const used = new Set(childrenOf(id).map((l) => keyOf(l.name)));
+    $("sub-chips").innerHTML = (id ? SUB_SUGGEST : ROOM_SUGGEST).filter((s) => !used.has(keyOf(s))).slice(0, 8)
+      .map((s) => `<button class="chip" data-chip="${esc(s)}">+ ${esc(s)}</button>`).join("");
+
+    if (!id) {
+      const rooms = childrenOf(null);
+      body.innerHTML = `<h2>Rooms</h2>` + (rooms.length ? `<div class="grid-rooms">${rooms.map((r) => {
+        const subs = descendants(r.id).length - 1, its = itemsIn(r.id, true).length;
+        return `<button class="room" data-loc="${esc(r.id)}">${tag(r.code)}<span class="rn">${esc(r.name)}</span><span class="rc">${subs} spots · ${its} items</span></button>`;
+      }).join("")}</div>` : `<div class="panel empty"><div class="big">No rooms yet</div><div>Tap a suggestion below or type your own room name.</div></div>`);
+      return;
+    }
+    const loc = S.locs.get(id), path = pathOf(id), kids = childrenOf(id), its = itemsIn(id, false);
+    if (document.activeElement !== $("loc-rename")) $("loc-rename").value = loc.name;
+    body.innerHTML = `<div class="loc-head">
+        <div class="crumbs"><button data-loc="">All rooms</button>${path.slice(0, -1).map((p) => ` › <button data-loc="${esc(p.id)}">${esc(p.name)}</button>`).join("")}</div>
+        <div class="title">${tag(loc.code)}<h3>${esc(loc.name)}</h3></div>
+        <div class="actions"><button class="btn sm primary" data-additem-loc="${esc(id)}">+ Register item here</button></div>
+      </div>
+      ${kids.length ? `<h2>Inside ${esc(loc.name)}</h2><div class="list">${kids.map((k) => `<button class="row" data-loc="${esc(k.id)}"><span class="name">${esc(k.name)}</span><span class="qty">${itemsIn(k.id, true).length} items</span><span class="where">${tag(k.code)} ${descendants(k.id).length - 1} spots inside</span></button>`).join("")}</div>` : ""}
+      <h2>Items kept here</h2>
+      ${its.length ? `<div class="list">${its.map((i) => itemRow(i)).join("")}</div>` : `<div class="panel empty small">Nothing registered directly in ${esc(loc.name)} yet. Use quick add below.</div>`}`;
+    renderQA();
+  }
+
+  function renderAdd() {
+    locOptions($("i-loc"), {});
+    locOptions($("l-parent"), { includeRoot: true });
+    if (!S.locs.size) $("i-msg").textContent = "Add a location first, on the Locations tab or below.";
+    else if ($("i-msg").textContent.startsWith("Add a location")) $("i-msg").textContent = "";
+    renderItemDup(); renderLocDup();
+  }
+
+  function renderCheck() {
+    const el = $("v-check"); const pairs = dupPairs();
+    const emptyLocs = [...S.locs.values()].filter((l) => !itemsIn(l.id, true).length && !childrenOf(l.id).length);
+    el.innerHTML = `<h2>Possible duplicates</h2>
+      <p class="muted small" style="margin:0">Items with the same or very similar names. Merge them into one entry, or mark them as different so they stop showing here.</p>
+      ${pairs.length ? pairs.slice(0, 40).map((p) => `<div class="panel" style="gap:10px">
+          <div class="score">${p.s === 1 ? "SAME NAME" : Math.round(p.s * 100) + "% SIMILAR"}</div>
+          <div class="list">${itemRow(p.a)}${itemRow(p.b)}</div>
+          <div class="actions">
+            <button class="btn sm primary" data-merge="${esc(p.a.id)}|${esc(p.b.id)}">Merge into ${esc(S.locs.get(p.a.locationId)?.code || "first")}</button>
+            <button class="btn sm" data-merge="${esc(p.b.id)}|${esc(p.a.id)}">Merge into ${esc(S.locs.get(p.b.locationId)?.code || "second")}</button>
+            <button class="btn sm" data-ignore="${esc(p.pk)}">They're different</button>
+          </div></div>`).join("")
+        : `<div class="panel empty">No duplicates found. Your inventory is clean.</div>`}
+      <h2>Empty locations</h2>
+      ${emptyLocs.length ? `<div class="list">${emptyLocs.map((l) => `<button class="row" data-loc="${esc(l.id)}"><span class="name">${esc(l.name)}</span><span class="qty">empty</span><span class="where">${tag(l.code)} ${esc(pathText(l.id))}</span></button>`).join("")}</div>` : `<div class="panel empty small">Every location has something in it.</div>`}
+      <h2>Backup</h2>
+      <div class="panel"><div class="small muted">Save a copy of all your locations and items as a JSON file.</div><div class="actions"><button class="btn" id="export" ${downloads ? "" : "disabled"}>Download backup</button></div></div>`;
+  }
+
+  function renderAll() {
+    renderHeader();
+    if (S.tab === "find") renderFind();
+    if (S.tab === "locs") renderLocs();
+    if (S.tab === "add") renderAdd();
+    if (S.tab === "check") renderCheck();
+    if (sheetItem) refreshSheetLocs();
+  }
+
+  // ---------- duplicate panel (register form) ----------
+  function dupPanelHTML(name, { excludeId, qtyAction } = {}) {
+    const { exact, similar } = itemMatches(name, { excludeId });
+    if (!exact.length && !similar.length) return "";
+    const m = (it, extra) => `<div class="m"><div><strong>${esc(it.name)}</strong> <span class="qty">×${esc(it.qty ?? 1)}</span><span class="small muted">${tag(S.locs.get(it.locationId)?.code)} ${esc(pathText(it.locationId))}</span></div>
+      <div class="actions">${qtyAction ? `<button type="button" class="btn sm primary" data-bump="${esc(it.id)}">Add qty to this</button>` : ""}<button type="button" class="btn sm" data-item="${esc(it.id)}">Open</button></div></div>${extra || ""}`;
+    return `<div class="dup ${exact.length ? "hard" : ""}">
+      ${exact.length ? `<div><strong>Already registered.</strong> You have ${exact.length === 1 ? "this item" : exact.length + " entries with this name"}:</div>${exact.map((x) => m(x)).join("")}` : ""}
+      ${similar.length ? `<div><strong>${exact.length ? "Also similar" : "Similar items exist"}.</strong> Is it one of these?</div>${similar.map((x) => m(x.it)).join("")}` : ""}
+    </div>`;
+  }
+  function renderItemDup() {
+    const name = $("i-name").value;
+    $("i-dup").innerHTML = dupPanelHTML(name, { qtyAction: true });
+    const f = $("f-item");
+    const needsAck = !!$("i-dup").innerHTML;
+    $("i-save").textContent = needsAck && f.dataset.ack === keyOf(name) ? "Save as a separate item" : "Save item";
+  }
+  function renderLocDup() {
+    const name = $("l-name").value.trim(), pid = $("l-parent").value || null;
+    const hit = name && locSibling(name, pid);
+    $("l-dup").innerHTML = hit ? `<div class="dup hard"><div><strong>${esc(hit.name)}</strong> already exists here as ${tag(hit.code)}. Pick a different name, like “${esc(name)} 2”.</div></div>` : "";
+  }
+
+  // ---------- quick add ----------
+  function parseQA() {
+    return $("qa-text").value.split(/\n/).map((l) => l.trim()).filter(Boolean).map((line) => {
+      const m = /^(.*?)\s*(?:[x×*]\s*(\d+)|\((\d+)\))\s*$/i.exec(line);
+      let name = line, qty = 1;
+      if (m && m[1]) { name = m[1].trim(); qty = +(m[2] || m[3]); }
+      const lead = /^(\d+)\s+(.+)$/.exec(name); if (lead && qty === 1) { qty = +lead[1]; name = lead[2]; }
+      return { name, qty: Math.max(1, qty || 1) };
+    });
+  }
+  let qaPlan = [];
+  function renderQA() {
+    const id = S.locId; const lines = parseQA(); const seen = new Map();
+    const prevOn = new Map(qaPlan.map((p) => [p.i + "|" + p.name, p.on]));
+    qaPlan = lines.map((l, i) => {
+      const k = keyOf(l.name);
+      if (seen.has(k)) return { ...l, st: "skip", why: "Repeated in this list, counted once above", on: false, i };
+      seen.set(k, i);
+      const { exact, similar } = itemMatches(l.name);
+      const here = exact.find((e) => e.locationId === id);
+      if (here) return { ...l, st: "same", why: `Already here (×${here.qty}). Will add ${l.qty} to it.`, on: true, bump: here.id, i };
+      if (exact.length) return { ...l, st: "warn", why: `Already registered at ${exact.map((e) => (S.locs.get(e.locationId)?.code || "?")).join(", ")}. Tick to add here too.`, on: false, i };
+      if (similar.length) return { ...l, st: "warn", why: `Similar to “${similar[0].it.name}” at ${S.locs.get(similar[0].it.locationId)?.code || "?"}. Untick if it's the same.`, on: true, i };
+      return { ...l, st: "new", why: "New item", on: true, i };
+    }).map((p) => (p.st !== "skip" && prevOn.has(p.i + "|" + p.name) ? { ...p, on: prevOn.get(p.i + "|" + p.name) } : p));
+    const prev = $("qa-preview");
+    prev.hidden = !qaPlan.length;
+    prev.innerHTML = qaPlan.map((p, n) => `<label class="qa-row"><input type="checkbox" data-qa="${n}" ${p.on ? "checked" : ""} ${p.st === "skip" ? "disabled" : ""}>
+      <span><b>${esc(p.name)}</b> <span class="qty">×${p.qty}</span><br><span class="why">${esc(p.why)}</span></span>
+      <span class="st ${p.st === "skip" ? "warn" : p.st}">${{ new: "new", same: "+qty", warn: "check", skip: "dupe" }[p.st]}</span></label>`).join("");
+    updateQASave();
+  }
+  function updateQASave() {
+    const n = qaPlan.filter((p) => p.on).length;
+    $("qa-save").disabled = !n; $("qa-save").textContent = n ? `Save ${n} item${n > 1 ? "s" : ""}` : "Save items";
+  }
+
+  // ---------- item sheet ----------
+  let sheetItem = null;
+  function openItem(id) {
+    const it = S.items.get(id); if (!it) return;
+    sheetItem = id;
+    $("sheet-root").innerHTML = `<div class="sheet-bg" id="sheet-bg"><form class="sheet" id="sheet" autocomplete="off" role="dialog" aria-label="Edit item">
+      <div class="crumbs">${tag(S.locs.get(it.locationId)?.code)} ${esc(pathText(it.locationId))}</div>
+      <h3>${esc(it.name)}</h3>
+      <div class="fields">
+        <label class="f">Item name<input id="e-name" class="in" value="${esc(it.name)}" required></label>
+        <label class="f">Qty<input id="e-qty" class="in" type="number" min="0" step="1" value="${esc(it.qty ?? 1)}"></label>
+        <div class="wide" id="e-dup"></div>
+        <label class="f wide">Stored at (change to move it)<select id="e-loc" class="in"></select></label>
+        <label class="f">Category<input id="e-cat" class="in" list="cats" value="${esc(it.category || "")}"></label><span></span>
+        <label class="f wide">Note<input id="e-note" class="in" value="${esc(it.note || "")}"></label>
+      </div>
+      <div class="small muted">Last updated ${new Date(it.updatedAt || it.createdAt || Date.now()).toLocaleString()}</div>
+      <div class="actions"><button class="btn primary" type="submit">Save changes</button><button class="btn" type="button" id="e-close">Close</button><span style="flex:1"></span><button class="btn danger" type="button" id="e-del">Delete</button></div>
+    </form></div>`;
+    locOptions($("e-loc"), { selected: it.locationId });
+    const dupE = () => { $("e-dup").innerHTML = keyOf($("e-name").value) === it.key ? "" : dupPanelHTML($("e-name").value, { excludeId: id }); };
+    $("e-name").addEventListener("input", dupE);
+    $("e-close").onclick = closeSheet;
+    $("sheet-bg").addEventListener("click", (e) => { if (e.target.id === "sheet-bg") closeSheet(); });
+    $("e-del").onclick = (e) => armed(e.currentTarget, "Tap again to delete", async () => { if (await delItem(id)) { closeSheet(); toast("Deleted " + it.name); } });
+    $("sheet").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = $("e-name").value.trim(); if (!name) return;
+      const data = { name, qty: Math.max(0, parseInt($("e-qty").value, 10) || 0), locationId: $("e-loc").value || it.locationId, category: $("e-cat").value.trim(), note: $("e-note").value.trim() };
+      const moved = data.locationId !== it.locationId;
+      if (await updItem(id, data)) { closeSheet(); toast(moved ? `Moved to ${S.locs.get(data.locationId)?.code}` : "Saved"); }
+    });
+    setTimeout(() => $("e-name") && $("e-name").focus({ preventScroll: true }), 50);
+  }
+  function refreshSheetLocs() { const sel = $("e-loc"); if (sel) locOptions(sel, {}); }
+  function closeSheet() { sheetItem = null; $("sheet-root").innerHTML = ""; }
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sheetItem) closeSheet(); });
+
+  // ---------- events ----------
+  document.querySelector("nav.tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) setTab(b.dataset.tab); });
+  $("q").addEventListener("input", () => { if (S.tab !== "find") setTab("find"); else renderFind(); });
+
+  document.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-item],[data-loc],[data-go],[data-additem],[data-additem-loc],[data-chip],[data-bump],[data-merge],[data-ignore],#export");
+    if (!t) return;
+    if (t.dataset.bump) {
+      const it = S.items.get(t.dataset.bump); const add = Math.max(1, parseInt($("i-qty").value, 10) || 1);
+      if (it && await updItem(it.id, { qty: (Number(it.qty) || 0) + add })) { toast(`${it.name} is now ×${(Number(it.qty) || 0) + add}`); $("f-item").reset(); $("f-item").dataset.ack = ""; renderItemDup(); }
+      return;
+    }
+    if (t.dataset.item) { openItem(t.dataset.item); return; }
+    if (t.dataset.loc !== undefined) { closeSheet(); S.locId = t.dataset.loc || null; $("qa-text").value = ""; setTab("locs"); window.scrollTo({ top: 0 }); return; }
+    if (t.dataset.go) { setTab(t.dataset.go); return; }
+    if (t.dataset.additem !== undefined) { setTab("add"); $("i-name").value = t.dataset.additem; renderItemDup(); $("i-name").focus(); return; }
+    if (t.dataset.additemLoc) { setTab("add"); $("i-loc").value = t.dataset.additemLoc; $("i-name").focus(); return; }
+    if (t.dataset.chip) { $("sub-name").value = t.dataset.chip; addSub(); return; }
+    if (t.dataset.merge) {
+      const [keepId, goneId] = t.dataset.merge.split("|"); const keep = S.items.get(keepId), gone = S.items.get(goneId);
+      if (!keep || !gone) return;
+      const note = [keep.note, gone.note].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" · ");
+      if (await updItem(keepId, { qty: (Number(keep.qty) || 0) + (Number(gone.qty) || 0), note, category: keep.category || gone.category || "" }) && await delItem(goneId))
+        toast(`Merged into ${keep.name} at ${S.locs.get(keep.locationId)?.code}`);
+      return;
+    }
+    if (t.dataset.ignore) {
+      const next = { ...S.ignored, [t.dataset.ignore]: true };
+      await write(() => db.doc("meta/ignored").set({ pairs: next }), "Marked as different");
+      return;
+    }
+    if (t.id === "export") {
+      const data = JSON.stringify({ exportedAt: new Date().toISOString(), locations: [...S.locs.values()], items: [...S.items.values()] }, null, 2);
+      try { await downloads.save({ filename: `home-warehouse-${new Date().toISOString().slice(0, 10)}.json`, data }); toast("Backup saved"); } catch (err) { if (err && err.code !== "declined" && err.code !== "cancelled") toast("Backup was not saved."); }
+    }
+  });
+
+  // register item
+  $("i-name").addEventListener("input", renderItemDup);
+  $("f-item").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, name = $("i-name").value.trim(), locationId = $("i-loc").value;
+    if (!name) return;
+    if (!locationId) { $("i-msg").textContent = "Choose where it's stored."; $("i-loc").focus(); return; }
+    const { exact, similar } = itemMatches(name);
+    if ((exact.length || similar.length) && f.dataset.ack !== keyOf(name)) {
+      f.dataset.ack = keyOf(name); renderItemDup();
+      $("i-msg").textContent = "Check the matches above. Press save again only if this is a different item.";
+      return;
+    }
+    const ok = await addItem({ name, qty: Math.max(1, parseInt($("i-qty").value, 10) || 1), locationId, category: $("i-cat").value.trim(), note: $("i-note").value.trim() });
+    if (ok) {
+      toast(`Saved ${name} → ${S.locs.get(locationId)?.code}`);
+      $("i-name").value = ""; $("i-qty").value = 1; $("i-note").value = ""; f.dataset.ack = ""; $("i-msg").textContent = "";
+      renderItemDup(); $("i-name").focus(); // keep location + category for fast entry
+    }
+  });
+
+  // register location (form)
+  $("l-name").addEventListener("input", renderLocDup);
+  $("l-parent").addEventListener("change", renderLocDup);
+  async function createLoc(name, pid) {
+    name = name.trim(); if (!name) return null;
+    if (locSibling(name, pid)) { toast(`“${name}” already exists there`); return null; }
+    const code = nextCode(pid);
+    let ref = null;
+    const ok = await write(async () => { ref = await db.collection("locations").add({ name, parentId: pid || null, code, createdAt: now() }); });
+    if (ok) toast(`Added ${code} · ${name}`);
+    return ok ? ref : null;
+  }
+  $("f-loc").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (await createLoc($("l-name").value, $("l-parent").value || null)) { $("l-name").value = ""; renderLocDup(); }
+  });
+
+  // locations tab: add sub / room
+  async function addSub() {
+    const name = $("sub-name").value; if (!name.trim()) return;
+    if (await createLoc(name, S.locId)) { $("sub-name").value = ""; $("sub-dup").innerHTML = ""; }
+  }
+  $("sub-add").onclick = addSub;
+  $("sub-name").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addSub(); } });
+  $("sub-name").addEventListener("input", () => {
+    const hit = $("sub-name").value.trim() && locSibling($("sub-name").value, S.locId);
+    $("sub-dup").innerHTML = hit ? `<div class="dup hard"><div>${tag(hit.code)} <strong>${esc(hit.name)}</strong> already exists here.</div></div>` : "";
+  });
+
+  // rename / delete location
+  $("loc-rename").addEventListener("input", () => {
+    const l = S.locs.get(S.locId); const hit = l && locSibling($("loc-rename").value, l.parentId || null, l.id);
+    $("loc-rename-dup").innerHTML = hit ? `<div class="dup hard"><div>${tag(hit.code)} <strong>${esc(hit.name)}</strong> already uses that name.</div></div>` : "";
+  });
+  $("loc-rename-btn").onclick = async () => {
+    const l = S.locs.get(S.locId); const name = $("loc-rename").value.trim();
+    if (!l || !name || name === l.name) return;
+    if (locSibling(name, l.parentId || null, l.id)) { toast("That name is already used here"); return; }
+    await write(() => db.doc("locations/" + l.id).update({ name }), "Renamed");
+  };
+  $("loc-del").onclick = (e) => {
+    const l = S.locs.get(S.locId); if (!l) return;
+    const kids = childrenOf(l.id).length, its = itemsIn(l.id, false).length;
+    if (kids || its) { $("loc-del-note").textContent = `Move or delete its ${its ? its + " items" : ""}${its && kids ? " and " : ""}${kids ? kids + " inner spots" : ""} first.`; return; }
+    armed(e.currentTarget, "Tap again to delete", async () => {
+      const parent = l.parentId || null;
+      if (await write(() => db.doc("locations/" + l.id).delete(), "Location deleted")) { S.locId = parent; renderAll(); }
+    });
+  };
+
+  // quick add
+  $("qa-text").addEventListener("input", renderQA);
+  $("qa-preview").addEventListener("change", (e) => { const c = e.target.closest("[data-qa]"); if (c) { qaPlan[+c.dataset.qa].on = c.checked; updateQASave(); } });
+  $("qa-save").onclick = async () => {
+    const id = S.locId; if (!id) return;
+    const todo = qaPlan.filter((p) => p.on); let n = 0;
+    $("qa-save").disabled = true;
+    for (const p of todo) {
+      if (p.bump) { const it = S.items.get(p.bump); if (it && await updItem(it.id, { qty: (Number(it.qty) || 0) + p.qty })) n++; }
+      else if (await addItem({ name: p.name, qty: p.qty, locationId: id, category: "", note: "" })) n++;
+    }
+    $("qa-text").value = ""; renderQA();
+    toast(`Saved ${n} of ${todo.length} items to ${S.locs.get(id)?.code}`);
+  };
+
+  // ---------- boot ----------
+  try { const t = localStorage.getItem("khw-tab"); if (t && ["find", "locs", "add", "check"].includes(t)) S.tab = t; } catch (e) {}
+  setTab(S.tab);
+
+  (async () => {
+    const use = window.claude && window.claude.use ? window.claude.use.bind(window.claude) : null;
+    db = use ? await use("db") : null;
+    if (!db) {
+      $("banner").hidden = false;
+      $("banner").textContent = "Your inventory can't load here. Open this page on claude.ai while signed in to see and save your items.";
+      $("stat").textContent = "Offline";
+      return;
+    }
+    use("downloads").then((d) => { downloads = d; if (S.tab === "check") renderCheck(); }).catch(() => {});
+    const onErr = (e) => { $("banner").hidden = false; $("banner").textContent = e && e.code === "revoked" ? "Access to this inventory changed. Reload the page." : "Lost the connection to your inventory. Reload the page to reconnect."; };
+    db.collection("locations").onSnapshot((snap) => {
+      S.locs = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }])); S.ready.l = true; renderAll();
+    }, onErr);
+    db.collection("items").onSnapshot((snap) => {
+      S.items = new Map(snap.docs.map((d) => { const v = d.data(); return [d.id, { id: d.id, ...v, key: v.key || keyOf(v.name) }]; })); S.ready.i = true; renderAll();
+    }, onErr);
+    db.doc("meta/ignored").onSnapshot((d) => { S.ignored = (d.exists && d.data().pairs) || {}; renderAll(); }, onErr);
+  })();
+})();
+</script>
