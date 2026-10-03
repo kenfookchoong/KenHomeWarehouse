@@ -12,8 +12,11 @@
   function idb() {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open("khw", 1);
-      r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("docs"); d.createObjectStore("blobs"); d.createObjectStore("emb"); };
+      const r = indexedDB.open("khw", 2);
+      r.onupgradeneeded = () => {
+        const d = r.result, have = d.objectStoreNames;
+        ["docs", "blobs", "emb", "outbox", "kv"].forEach((n) => { if (!have.contains(n)) d.createObjectStore(n); });
+      };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });
@@ -50,8 +53,10 @@
   }
   function notify() { queueMicrotask(() => listeners.forEach((l) => { try { l.cb(l.kind === "col" ? snapCol(l.path) : snapDoc(l.path)); } catch (e) { console.error(e); } })); }
   async function write(path, value) {
+    const ts = Date.now();
     if (value === undefined) { docs.delete(path); await tx("docs", "readwrite", (s) => s.delete(path)); }
-    else { const v = JSON.parse(JSON.stringify(value)); docs.set(path, v); await tx("docs", "readwrite", (s) => s.put(v, path)); }
+    else { const v = JSON.parse(JSON.stringify(value)); v._ts = ts; docs.set(path, v); await tx("docs", "readwrite", (s) => s.put(v, path)); }
+    if (sync.user) { await outboxPut(path, { ts }); schedule(1500); }
     notify();
   }
   const bad = (m) => Object.assign(new Error(m), { code: "invalid_argument" });
@@ -85,11 +90,13 @@
       try { await tx("blobs", "readwrite", (s) => s.put(blob, id)); }
       catch (e) { throw Object.assign(new Error("Storage full"), { code: "quota_or_state" }); }
       urls.set(id, URL.createObjectURL(blob));
+      if (sync.user) { await outboxPut("photo:" + id, { op: "up" }); schedule(1500); }
       return { id, url: urls.get(id), sizeBytes: blob.size, contentType: blob.type };
     },
     async delete(id) {
       if (urls.has(id)) { URL.revokeObjectURL(urls.get(id)); urls.delete(id); }
       await tx("blobs", "readwrite", (s) => s.delete(id)); await tx("emb", "readwrite", (s) => s.delete(id)).catch(() => {});
+      if (sync.user) { await outboxPut("photo:" + id, { op: "del" }); schedule(1500); }
       return { deleted: true };
     },
   };
@@ -266,17 +273,206 @@
     },
   });
 
+  // ---------- cloud sync (optional, Supabase) ----------
+  // The phone stays the main copy. Every change is queued in "outbox" and pushed when online;
+  // other devices' changes are pulled by server time. Newest edit (by _ts) wins.
+  const kvGet = (k) => tx("kv", "readonly", (s) => reqP(s.get(k))).catch(() => undefined);
+  const kvSet = (k, v) => tx("kv", "readwrite", (s) => s.put(v, k));
+  function outboxPut(k, v) { return tx("outbox", "readwrite", (s) => s.put(v, k)); }
+  const sync = { client: null, user: null, status: "off", err: "", last: 0, busy: false, again: false, timer: null, subs: new Set() };
+  function setStatus(st, err) { sync.status = st; sync.err = err || ""; sync.subs.forEach((f) => { try { f(); } catch (e) {} }); }
+  function cloudCfg() {
+    const c = window.KHW_CLOUD || {}; let s = {};
+    try { s = JSON.parse(localStorage.getItem("khw-cloud") || "{}"); } catch (e) {}
+    return { url: (c.url || s.url || "").trim(), key: (c.key || s.key || "").trim() };
+  }
+  async function cloudInit() {
+    const c = cloudCfg();
+    if (!c.url || !c.key) { sync.client = null; setStatus("off"); return; }
+    try {
+      if (!window.supabase) await loadScript(vendor("supabase.js"));
+      sync.client = window.supabase.createClient(c.url, c.key, { auth: { persistSession: true, autoRefreshToken: true, storageKey: "khw-auth" } });
+      sync.last = (await kvGet("lastSync")) || 0;
+      const { data } = await sync.client.auth.getSession();
+      sync.user = data && data.session ? data.session.user : null;
+      if (sync.user) { await linkUser(); syncNow(); } else setStatus("signed-out");
+    } catch (e) { setStatus("error", "Couldn't start cloud sync: " + (e.message || e)); }
+  }
+  async function linkUser() {
+    // first sign-in on this device (or a different account): queue everything already here for upload
+    if ((await kvGet("linkedUser")) === sync.user.id) return;
+    const t = Date.now();
+    for (const [path, v] of docs) await outboxPut(path, { ts: v._ts || t });
+    for (const id of urls.keys()) await outboxPut("photo:" + id, { op: "up" });
+    await kvSet("lastPull", "1970-01-01T00:00:00Z"); await kvSet("linkedUser", sync.user.id);
+  }
+  function schedule(ms) { if (!sync.user) return; clearTimeout(sync.timer); sync.timer = setTimeout(syncNow, ms); }
+  async function syncNow() {
+    if (!sync.client || !sync.user) return;
+    if (sync.busy) { sync.again = true; return; }
+    sync.busy = true; setStatus("syncing");
+    try {
+      await push(); await pull();
+      sync.last = Date.now(); await kvSet("lastSync", sync.last); setStatus("ok");
+    } catch (e) {
+      setStatus("error", navigator.onLine === false ? "Offline. Changes are kept on this phone and sync when you're back online." : "Sync didn't finish: " + (e.message || e));
+    } finally {
+      sync.busy = false;
+      if (sync.again) { sync.again = false; schedule(300); } else schedule(30000);
+    }
+  }
+  async function push() {
+    const box = await getAll("outbox"); if (!box.size) return;
+    const uid = sync.user.id, rows = [], photos = [];
+    box.forEach((v, k) => (k.startsWith("photo:") ? photos : rows).push([k, v]));
+    const bucket = sync.client.storage.from("photos");
+    for (const [k, v] of photos) {
+      const id = k.slice(6), file = uid + "/" + id;
+      if (v.op === "del") { const { error } = await bucket.remove([file]); if (error) throw error; }
+      else {
+        const b = await blobOf(id);
+        if (b) { const { error } = await bucket.upload(file, b, { upsert: true, contentType: b.type || "image/jpeg" }); if (error) throw error; }
+      }
+      await tx("outbox", "readwrite", (s) => s.delete(k));
+    }
+    for (let i = 0; i < rows.length; i += 200) {
+      const chunk = rows.slice(i, i + 200);
+      const payload = chunk.map(([path, v]) => {
+        const d = docs.get(path);
+        return d === undefined ? { user_id: uid, path, data: null, ts: v.ts, deleted: true } : { user_id: uid, path, data: d, ts: d._ts || v.ts, deleted: false };
+      });
+      const { error } = await sync.client.from("docs").upsert(payload, { onConflict: "user_id,path" });
+      if (error) throw error;
+      const now = await getAll("outbox"); // keep entries edited again while this chunk was uploading
+      await tx("outbox", "readwrite", (s) => chunk.forEach(([path, v]) => { const cur = now.get(path); if (cur && cur.ts === v.ts) s.delete(path); }));
+    }
+  }
+  async function pull() {
+    let since = (await kvGet("lastPull")) || "1970-01-01T00:00:00Z", changed = false;
+    const pending = await getAll("outbox");
+    for (;;) {
+      const { data, error } = await sync.client.from("docs").select("path,data,ts,deleted,server_ts")
+        .gt("server_ts", since).order("server_ts", { ascending: true }).limit(500);
+      if (error) throw error;
+      for (const r of data) {
+        since = r.server_ts;
+        const cur = docs.get(r.path), mine = Math.max(cur ? cur._ts || 0 : 0, pending.has(r.path) ? pending.get(r.path).ts || 0 : 0);
+        if (Number(r.ts) <= mine) continue;
+        if (r.deleted || !r.data) { if (cur === undefined) continue; docs.delete(r.path); await tx("docs", "readwrite", (s) => s.delete(r.path)); }
+        else { docs.set(r.path, r.data); await tx("docs", "readwrite", (s) => s.put(r.data, r.path)); }
+        changed = true;
+      }
+      await kvSet("lastPull", since);
+      if (data.length < 500) break;
+    }
+    if (changed) notify();
+    // fetch photos that other devices added
+    const bucket = sync.client.storage.from("photos"); let got = false;
+    for (const [path, v] of docs) {
+      if (!path.startsWith("items/") || !v.photo || urls.has(v.photo)) continue;
+      const { data: b, error } = await bucket.download(sync.user.id + "/" + v.photo);
+      if (error || !b) continue;
+      await tx("blobs", "readwrite", (s) => s.put(b, v.photo)); urls.set(v.photo, URL.createObjectURL(b)); got = true;
+    }
+    if (got) notify();
+  }
+  const cloud = {
+    get state() { return { status: sync.status, err: sync.err, last: sync.last, email: sync.user ? sync.user.email : "", configured: !!sync.client || !!cloudCfg().url } ; },
+    subscribe(f) { sync.subs.add(f); return () => sync.subs.delete(f); },
+    async configure(url, key) { localStorage.setItem("khw-cloud", JSON.stringify({ url, key })); await cloudInit(); },
+    async signIn(email, password, create) {
+      if (!sync.client) throw new Error("Cloud sync isn't set up yet.");
+      const fn = create ? sync.client.auth.signUp({ email, password }) : sync.client.auth.signInWithPassword({ email, password });
+      const { data, error } = await fn; if (error) throw error;
+      if (!data.session) throw new Error("Account created. Check your email to confirm it, then sign in.");
+      sync.user = data.session.user; await linkUser(); await syncNow();
+    },
+    async signOut() { if (sync.client) await sync.client.auth.signOut(); sync.user = null; clearTimeout(sync.timer); setStatus("signed-out"); },
+    syncNow: () => syncNow(),
+  };
+  window.addEventListener("online", () => schedule(500));
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") schedule(500); });
+
+  // ---------- cloud sync screen (Clean-up tab) and header badge ----------
+  const h = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function ago(t) { if (!t) return "never"; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : new Date(t).toLocaleString(); }
+  function cloudUI() {
+    const root = document.getElementById("ext-check"), badge = document.getElementById("cloud-badge");
+    if (!root) return;
+    const st = cloud.state;
+    if (badge) {
+      badge.hidden = st.status === "off";
+      badge.textContent = { ok: "☁ Synced", syncing: "☁ Syncing…", error: "☁ Not synced", "signed-out": "☁ Signed out" }[st.status] || "";
+      badge.dataset.state = st.status;
+    }
+    const mode = st.status === "off" ? "setup" : st.status === "signed-out" ? "signin" : "on";
+    if (root.dataset.mode !== mode) {
+      root.dataset.mode = mode;
+      root.innerHTML = mode === "setup" ? `<div class="panel"><h2 style="margin:0">Cloud sync</h2>
+          <p class="small muted" style="margin:0">Optional. Backs your inventory up online and keeps it the same on all your devices, using a free Supabase project. Until then, everything stays on this phone.</p>
+          <label class="f">Supabase project URL<input class="in" id="cl-url" placeholder="https://xxxx.supabase.co" autocomplete="off" autocapitalize="off"></label>
+          <label class="f">Supabase anon public key<input class="in" id="cl-key" placeholder="eyJ…" autocomplete="off" autocapitalize="off"></label>
+          <div class="actions"><button class="btn primary" id="cl-save">Connect</button></div><div class="small" id="cl-msg"></div></div>`
+        : mode === "signin" ? `<form class="panel" id="cl-form"><h2 style="margin:0">Cloud sync: sign in</h2>
+          <p class="small muted" style="margin:0">Sign in to upload what's on this phone and keep it in sync. Use the same account on every device.</p>
+          <label class="f">Email<input class="in" id="cl-email" type="email" autocomplete="username" autocapitalize="off"></label>
+          <label class="f">Password<input class="in" id="cl-pass" type="password" autocomplete="current-password"></label>
+          <div class="actions"><button class="btn primary" type="submit">Sign in</button><button class="btn" type="button" id="cl-create">Create account</button></div>
+          <div class="small" id="cl-msg"></div></form>`
+        : `<div class="panel"><h2 style="margin:0">Cloud sync</h2><div id="cl-status"></div>
+          <div class="actions"><button class="btn" id="cl-now">Sync now</button><button class="btn danger" id="cl-out">Sign out</button></div></div>`;
+    }
+    const s2 = document.getElementById("cl-status");
+    if (s2) s2.innerHTML = `<div>Signed in as <strong>${h(st.email)}</strong></div><div class="small ${st.status === "error" ? "" : "muted"}">${st.status === "syncing" ? "Syncing…" : st.status === "error" ? h(st.err) : "Last synced " + h(ago(st.last))}</div>`;
+    if (st.status === "error" && mode !== "on") { const m = document.getElementById("cl-msg"); if (m) m.textContent = st.err; }
+  }
+  function cloudEvents() {
+    const msg = (t) => { const m = document.getElementById("cl-msg"); if (m) m.textContent = t; };
+    document.addEventListener("click", async (e) => {
+      const t = e.target.closest("#cl-save,#cl-create,#cl-now,#cl-out,#cloud-badge"); if (!t) return;
+      if (t.id === "cloud-badge") { const tab = document.querySelector('[data-tab="check"]'); if (tab) tab.click(); setTimeout(() => document.getElementById("ext-check").scrollIntoView({ behavior: "smooth" }), 50); }
+      if (t.id === "cl-save") {
+        const url = document.getElementById("cl-url").value.trim(), key = document.getElementById("cl-key").value.trim();
+        if (!/^https:\/\/.+/.test(url) || key.length < 20) { msg("Paste the Project URL (starts with https://) and the anon public key."); return; }
+        msg("Connecting…"); await cloud.configure(url, key);
+      }
+      if (t.id === "cl-create") {
+        const em = document.getElementById("cl-email").value.trim(), pw = document.getElementById("cl-pass").value;
+        if (!em || pw.length < 6) { msg("Enter your email and a password of at least 6 characters."); return; }
+        msg("Creating account…"); try { await cloud.signIn(em, pw, true); } catch (err) { msg(err.message || String(err)); }
+      }
+      if (t.id === "cl-now") cloud.syncNow();
+      if (t.id === "cl-out") { if (t.classList.contains("armed")) { await cloud.signOut(); } else { t.classList.add("armed"); t.textContent = "Tap again to sign out"; setTimeout(() => { t.classList.remove("armed"); t.textContent = "Sign out"; }, 3500); } }
+    });
+    document.addEventListener("submit", async (e) => {
+      if (e.target.id !== "cl-form") return; e.preventDefault();
+      const em = document.getElementById("cl-email").value.trim(), pw = document.getElementById("cl-pass").value;
+      if (!em || !pw) { msg("Enter your email and password."); return; }
+      msg("Signing in…"); try { await cloud.signIn(em, pw, false); } catch (err) { msg(err.message || String(err)); }
+    });
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const stat = document.getElementById("stat");
+    if (stat && !document.getElementById("cloud-badge")) {
+      const b = document.createElement("button"); b.type = "button"; b.id = "cloud-badge"; b.hidden = true; b.className = "cloud-badge";
+      stat.insertAdjacentElement("afterend", b);
+    }
+    cloud.subscribe(cloudUI); cloudEvents(); cloudUI(); setInterval(cloudUI, 30000);
+  });
+
   // ---------- boot ----------
   const ready = (async () => {
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
     const [d, b] = await Promise.all([getAll("docs"), getAll("blobs")]);
     d.forEach((v, k) => docs.set(k, v));
     b.forEach((blob, id) => urls.set(id, URL.createObjectURL(blob)));
+    cloudInit(); // runs in the background; the app works without it
   })();
   const caps = { db, assets, downloads, sample, user: null, permissions: null };
   window.LOCAL_RUNTIME = {
     use: async (name) => { try { await ready; } catch (e) { return null; } return caps[name] || null; },
     photoUrl: (id) => urls.get(id) || "",
+    cloud,
     _test: { expiryFrom, nameFromLines, noteFrom, catOf },
   };
 })();

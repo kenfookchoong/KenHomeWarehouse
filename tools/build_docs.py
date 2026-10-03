@@ -30,6 +30,7 @@ body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-seri
 img { max-width: 100%; }
 [hidden] { display: none !important; }
 </style>
+<script src="cloud-config.js"></script>
 <script src="local.js"></script>
 </head>
 <body>
