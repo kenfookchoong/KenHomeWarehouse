@@ -124,6 +124,12 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
 .exp { font: 600 11px/1 var(--f-mono); padding: 3px 6px; border-radius: 4px; white-space: nowrap; background: var(--sunken); color: var(--muted); }
 .exp.bad { background: var(--bad-bg); color: var(--bad-ink); }
 .exp.soon { background: var(--warn-bg); color: var(--warn-ink); }
+.exp-field { display: grid; gap: 6px; min-width: 0; }
+.exp-field .f { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.opt { font-weight: 400; font-size: 12px; }
+.exp-row { display: flex; gap: 8px; align-items: stretch; }
+.exp-row input { flex: 1; min-width: 0; min-height: 44px; }
+.exp-row .btn { white-space: nowrap; }
 .multi { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 .dup { border: 1.5px solid var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
@@ -234,8 +240,12 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
           <label class="f">Qty<input id="i-qty" class="in" type="number" min="1" step="1" value="1"></label>
           <div class="wide" id="i-dup"></div>
           <label class="f wide">Stored at<select id="i-loc" class="in" required></select></label>
-          <label class="f">Category <input id="i-cat" class="in" list="cats" placeholder="Optional"></label>
-          <label class="f">Expires<input id="i-exp" class="in" type="date"></label>
+          <label class="f wide">Category <input id="i-cat" class="in" list="cats" placeholder="Optional"></label>
+          <div class="wide exp-field">
+            <label class="f" for="i-exp">Expiry date <span class="opt">optional</span></label>
+            <div class="exp-row"><input id="i-exp" class="in" type="date"><button type="button" class="btn sm" data-exp-clear="i-exp">No expiry</button></div>
+            <div class="chips"><button type="button" class="chip" data-exp-add="1" data-exp-for="i-exp">+1 month</button><button type="button" class="chip" data-exp-add="3" data-exp-for="i-exp">+3 months</button><button type="button" class="chip" data-exp-add="6" data-exp-for="i-exp">+6 months</button><button type="button" class="chip" data-exp-add="12" data-exp-for="i-exp">+1 year</button></div>
+          </div>
           <label class="f wide">Note<input id="i-note" class="in" placeholder="Optional, e.g. warranty card inside the box"></label>
           <div class="wide photo-field" id="i-photo" hidden>
             <img id="i-photo-img" alt="Photo of the new item" hidden>
@@ -756,8 +766,12 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
         <label class="f">Qty<input id="e-qty" class="in" type="number" min="0" step="1" value="${esc(it.qty ?? 1)}"></label>
         <div class="wide" id="e-dup"></div>
         <label class="f wide">Stored at (change to move it)<select id="e-loc" class="in"></select></label>
-        <label class="f">Category<input id="e-cat" class="in" list="cats" value="${esc(it.category || "")}"></label>
-        <label class="f">Expires<input id="e-exp" class="in" type="date" value="${esc(it.expires || "")}"></label>
+        <label class="f wide">Category<input id="e-cat" class="in" list="cats" value="${esc(it.category || "")}"></label>
+        <div class="wide exp-field">
+          <label class="f" for="e-exp">Expiry date <span class="opt">optional</span>${expPill(it)}</label>
+          <div class="exp-row"><input id="e-exp" class="in" type="date" value="${esc(it.expires || "")}"><button type="button" class="btn sm" data-exp-clear="e-exp">No expiry</button></div>
+          <div class="chips"><button type="button" class="chip" data-exp-add="1" data-exp-for="e-exp">+1 month</button><button type="button" class="chip" data-exp-add="3" data-exp-for="e-exp">+3 months</button><button type="button" class="chip" data-exp-add="6" data-exp-for="e-exp">+6 months</button><button type="button" class="chip" data-exp-add="12" data-exp-for="e-exp">+1 year</button></div>
+        </div>
         <label class="f wide">Note<input id="e-note" class="in" value="${esc(it.note || "")}"></label>
       </div>
       <div class="small muted">Last updated ${new Date(it.updatedAt || it.createdAt || Date.now()).toLocaleString()}</div>
@@ -842,6 +856,14 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       const data = JSON.stringify({ exportedAt: new Date().toISOString(), locations: [...S.locs.values()], items: [...S.items.values()] }, null, 2);
       try { await downloads.save({ filename: `home-warehouse-${new Date().toISOString().slice(0, 10)}.json`, data }); toast("Backup saved"); } catch (err) { if (err && err.code !== "declined" && err.code !== "cancelled") toast("Backup was not saved."); }
     }
+  });
+
+  // expiry quick buttons (register form + item sheet)
+  document.addEventListener("click", (e) => {
+    const c = e.target.closest("[data-exp-clear],[data-exp-add]"); if (!c) return;
+    if (c.dataset.expClear) { $(c.dataset.expClear).value = ""; if (c.dataset.expClear === "e-exp") toast("Expiry removed. Tap Save changes to keep it."); return; }
+    const d = new Date(); d.setMonth(d.getMonth() + +c.dataset.expAdd);
+    $(c.dataset.expFor).value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   });
 
   // find by picture
