@@ -252,7 +252,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
             <div class="actions">
               <label class="btn sm" for="i-photo-in" id="i-photo-lbl">Add photo</label>
               <input type="file" id="i-photo-in" accept="image/*" capture="environment" hidden>
-              <button type="button" class="btn sm" id="i-suggest" hidden>Suggest name from photo</button>
+              <button type="button" class="btn sm" id="i-suggest" hidden>Read photo again</button>
               <button type="button" class="btn sm danger" id="i-photo-rm" hidden>Remove photo</button>
             </div>
           </div>
@@ -879,20 +879,27 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     $("i-photo-rm").hidden = !pending; $("i-suggest").hidden = !(pending && canSee);
     $("i-photo-lbl").textContent = pending ? "Change photo" : "Add photo";
   }
-  $("i-photo-in").addEventListener("change", async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) setPending(await shrink(f)); });
+  $("i-photo-in").addEventListener("change", async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; setPending(await shrink(f)); if (canSee) readPhoto(false); });
   $("i-photo-rm").onclick = () => setPending(null);
-  $("i-suggest").onclick = async () => {
+  $("i-suggest").onclick = () => readPhoto(true);
+  // fills the form from the photo; on auto-read (overwrite=false) only empty fields are filled
+  let reading = 0;
+  async function readPhoto(overwrite) {
     if (!pending || !sample) return;
-    const b = $("i-suggest"); b.disabled = true; b.textContent = "Looking…";
+    const run = ++reading, blob = pending.blob;
+    const b = $("i-suggest"); b.disabled = true; b.textContent = "Reading photo…";
+    $("i-msg").textContent = "Reading the photo. You can keep typing.";
     try {
       const r = await sample.json('Name the main object in this photo for a home inventory list. Reply with only JSON like {"name":"Cordless power drill","category":"Tools","expires":""}: name is short and specific (2-5 words), category is one or two words, expires is the expiry or best-before date printed on the item as YYYY-MM-DD if one is clearly readable (use the last day of the month when only month and year are shown), otherwise an empty string.',
-        { images: [pending.blob], modelTier: "quick" });
-      if (r && r.name) { $("i-name").value = String(r.name).slice(0, 80); renderItemDup(); }
+        { images: [blob], modelTier: "quick" });
+      if (run !== reading || !pending || pending.blob !== blob) return; // a newer photo replaced this one
+      if (r && r.name && (overwrite || !$("i-name").value.trim())) { $("i-name").value = String(r.name).slice(0, 80); renderItemDup(); }
       if (r && r.category && !$("i-cat").value) $("i-cat").value = String(r.category).slice(0, 40);
       if (r && /^\d{4}-\d{2}-\d{2}$/.test(r.expires || "") && !$("i-exp").value) { $("i-exp").value = r.expires; toast("Expiry date read from the photo. Please check it."); }
-    } catch (err) { toast(sampleErr(err)); }
-    b.disabled = false; b.textContent = "Suggest name from photo";
-  };
+      $("i-msg").textContent = r && r.name ? "Filled in from the photo. Check it, choose where it's stored, then save." : "Couldn't recognise the item. Type the name instead.";
+    } catch (err) { if (run === reading) $("i-msg").textContent = sampleErr(err); }
+    finally { if (run === reading) { b.disabled = false; b.textContent = "Read photo again"; } }
+  }
 
   // register item
   $("i-name").addEventListener("input", renderItemDup);
