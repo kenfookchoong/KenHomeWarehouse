@@ -121,6 +121,9 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
 .conf { font: 600 11px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: var(--sunken); color: var(--muted); }
 .conf.high { background: color-mix(in srgb, var(--ok-ink) 18%, transparent); color: var(--ok-ink); }
 .conf.medium { background: var(--warn-bg); color: var(--warn-ink); }
+.exp { font: 600 11px/1 var(--f-mono); padding: 3px 6px; border-radius: 4px; white-space: nowrap; background: var(--sunken); color: var(--muted); }
+.exp.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.exp.soon { background: var(--warn-bg); color: var(--warn-ink); }
 .multi { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 .dup { border: 1.5px solid var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
@@ -168,7 +171,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       <input type="file" id="pic-find" accept="image/*" capture="environment" hidden>
     </div>
     <nav class="tabs" role="tablist">
-      <button role="tab" data-tab="find" aria-selected="true">Find</button>
+      <button role="tab" data-tab="find" aria-selected="true">Find <span class="badge" id="expcount" hidden title="Expired or expiring within 30 days">0</span></button>
       <button role="tab" data-tab="locs" aria-selected="false">Locations</button>
       <button role="tab" data-tab="add" aria-selected="false">Register</button>
       <button role="tab" data-tab="check" aria-selected="false">Clean-up <span class="badge" id="dupcount" hidden>0</span></button>
@@ -232,7 +235,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
           <div class="wide" id="i-dup"></div>
           <label class="f wide">Stored at<select id="i-loc" class="in" required></select></label>
           <label class="f">Category <input id="i-cat" class="in" list="cats" placeholder="Optional"></label>
-          <span></span>
+          <label class="f">Expires<input id="i-exp" class="in" type="date"></label>
           <label class="f wide">Note<input id="i-note" class="in" placeholder="Optional, e.g. warranty card inside the box"></label>
           <div class="wide photo-field" id="i-photo" hidden>
             <img id="i-photo-img" alt="Photo of the new item" hidden>
@@ -437,6 +440,33 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       : c === "cancelled" ? "Stopped." : "Couldn't read the photo. Try again.";
   }
 
+  // ---------- expiry ----------
+  const SOON_DAYS = 30;
+  function daysLeft(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd || ""); if (!m) return null;
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    return Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - t) / 86400000);
+  }
+  function expLabel(ymd) {
+    const d = daysLeft(ymd); if (d === null) return null;
+    const date = new Date(ymd + "T00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    if (d < 0) return { cls: "bad", text: `Expired ${-d}d ago`, date };
+    if (d === 0) return { cls: "bad", text: "Expires today", date };
+    if (d <= SOON_DAYS) return { cls: "soon", text: `Expires in ${d}d`, date };
+    return { cls: "", text: "Exp " + date, date };
+  }
+  function expPill(it) { const e = expLabel(it.expires); return e ? ` <span class="exp ${e.cls}" title="Expires ${esc(e.date)}">${esc(e.text)}</span>` : ""; }
+  function expiring() {
+    return [...S.items.values()].filter((i) => { const d = daysLeft(i.expires); return d !== null && d <= SOON_DAYS && (Number(i.qty) || 0) > 0; })
+      .sort((a, b) => a.expires.localeCompare(b.expires));
+  }
+  function expiringHTML() {
+    const list = expiring(); if (!list.length) return "";
+    const gone = list.filter((i) => daysLeft(i.expires) < 0).length;
+    return `<h2>Use or replace soon <span class="muted small" style="text-transform:none;letter-spacing:0">${gone ? gone + " expired · " : ""}${list.length - gone} within ${SOON_DAYS} days</span></h2>
+      <div class="list">${list.slice(0, 30).map((i) => itemRow(i)).join("")}</div>`;
+  }
+
   // ---------- UI bits ----------
   let toastT;
   function toast(msg) {
@@ -461,7 +491,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     return `<button class="row" data-item="${esc(it.id)}">
       <span class="name">${it.photo ? `<img class="thumb" src="${esc(photoUrl(it.photo))}" alt="" loading="lazy">` : ""}<span>${hl(it.name, q || "")}</span></span>
       <span class="qty">×<b>${esc(it.qty ?? 1)}</b></span>
-      <span class="where">${tag(loc && loc.code)} <span>${esc(pathText(it.locationId))}</span>${it.category ? ` · <span>${hl(it.category, q || "")}</span>` : ""}</span>
+      <span class="where">${tag(loc && loc.code)} <span>${esc(pathText(it.locationId))}</span>${it.category ? ` · <span>${hl(it.category, q || "")}</span>` : ""}${expPill(it)}</span>
     </button>`;
   }
 
@@ -478,6 +508,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     const n = S.items.size, q = [...S.items.values()].reduce((s, i) => s + (Number(i.qty) || 0), 0);
     $("stat").textContent = (S.ready.l && S.ready.i) || !db ? `${n} items · ${q} pcs · ${S.locs.size} locations` : "Loading inventory…";
     const d = dupPairs().length; const b = $("dupcount"); b.hidden = !d; b.textContent = d;
+    const ex = expiring().length; $("expcount").hidden = !ex; $("expcount").textContent = ex;
     const cats = new Set(); S.items.forEach((i) => i.category && cats.add(i.category));
     $("cats").innerHTML = [...cats].sort().map((c) => `<option value="${esc(c)}">`).join("");
   }
@@ -551,6 +582,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
         return;
       }
       el.innerHTML = `<div class="stats"><div><b>${S.items.size}</b><span>Items</span></div><div><b>${pcs}</b><span>Pieces</span></div><div><b>${S.locs.size}</b><span>Locations</span></div></div>
+        ${expiringHTML()}
         <h2>Recently updated</h2>
         ${recent.length ? `<div class="list">${recent.map((i) => itemRow(i)).join("")}</div>` : `<div class="panel empty">No items yet. <button class="btn primary" data-go="add">Register your first item</button></div>`}`;
       return;
@@ -559,7 +591,8 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     const scored = [];
     S.items.forEach((it) => {
       const loc = S.locs.get(it.locationId);
-      const hay = keyOf([it.name, it.category, it.note, pathText(it.locationId), loc && loc.code].join(" "));
+      const dl = daysLeft(it.expires);
+      const hay = keyOf([it.name, it.category, it.note, pathText(it.locationId), loc && loc.code, dl !== null && dl < 0 ? "expired" : "", dl !== null && dl <= SOON_DAYS ? "expiring" : ""].join(" "));
       let s = 0;
       if (it.key === qk) s = 3;
       else if (qt.every((t) => hay.includes(t))) s = 2 + (it.key.includes(qk) ? 0.5 : 0);
@@ -723,7 +756,8 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
         <label class="f">Qty<input id="e-qty" class="in" type="number" min="0" step="1" value="${esc(it.qty ?? 1)}"></label>
         <div class="wide" id="e-dup"></div>
         <label class="f wide">Stored at (change to move it)<select id="e-loc" class="in"></select></label>
-        <label class="f">Category<input id="e-cat" class="in" list="cats" value="${esc(it.category || "")}"></label><span></span>
+        <label class="f">Category<input id="e-cat" class="in" list="cats" value="${esc(it.category || "")}"></label>
+        <label class="f">Expires<input id="e-exp" class="in" type="date" value="${esc(it.expires || "")}"></label>
         <label class="f wide">Note<input id="e-note" class="in" value="${esc(it.note || "")}"></label>
       </div>
       <div class="small muted">Last updated ${new Date(it.updatedAt || it.createdAt || Date.now()).toLocaleString()}</div>
@@ -748,7 +782,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     $("sheet").addEventListener("submit", async (e) => {
       e.preventDefault();
       const name = $("e-name").value.trim(); if (!name) return;
-      const data = { name, qty: Math.max(0, parseInt($("e-qty").value, 10) || 0), locationId: $("e-loc").value || it.locationId, category: $("e-cat").value.trim(), note: $("e-note").value.trim() };
+      const data = { name, qty: Math.max(0, parseInt($("e-qty").value, 10) || 0), locationId: $("e-loc").value || it.locationId, category: $("e-cat").value.trim(), note: $("e-note").value.trim(), expires: $("e-exp").value || "" };
       const moved = data.locationId !== it.locationId;
       if (await updItem(id, data)) { closeSheet(); toast(moved ? `Moved to ${S.locs.get(data.locationId)?.code}` : "Saved"); }
     });
@@ -793,7 +827,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       if (!keep || !gone) return;
       const note = [keep.note, gone.note].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" · ");
       const photo = keep.photo || gone.photo || "";
-      if (await updItem(keepId, { qty: (Number(keep.qty) || 0) + (Number(gone.qty) || 0), note, category: keep.category || gone.category || "", photo }) && await delItem(goneId)) {
+      if (await updItem(keepId, { qty: (Number(keep.qty) || 0) + (Number(gone.qty) || 0), note, category: keep.category || gone.category || "", expires: [keep.expires, gone.expires].filter(Boolean).sort()[0] || "", photo }) && await delItem(goneId)) {
         if (gone.photo && gone.photo !== photo) dropPhoto(gone.photo);
         toast(`Merged into ${keep.name} at ${S.locs.get(keep.locationId)?.code}`);
       }
@@ -829,10 +863,11 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     if (!pending || !sample) return;
     const b = $("i-suggest"); b.disabled = true; b.textContent = "Looking…";
     try {
-      const r = await sample.json('Name the main object in this photo for a home inventory list. Reply with only JSON like {"name":"Cordless power drill","category":"Tools"}: name is short and specific (2-5 words), category is one or two words.',
+      const r = await sample.json('Name the main object in this photo for a home inventory list. Reply with only JSON like {"name":"Cordless power drill","category":"Tools","expires":""}: name is short and specific (2-5 words), category is one or two words, expires is the expiry or best-before date printed on the item as YYYY-MM-DD if one is clearly readable (use the last day of the month when only month and year are shown), otherwise an empty string.',
         { images: [pending.blob], modelTier: "quick" });
       if (r && r.name) { $("i-name").value = String(r.name).slice(0, 80); renderItemDup(); }
       if (r && r.category && !$("i-cat").value) $("i-cat").value = String(r.category).slice(0, 40);
+      if (r && /^\d{4}-\d{2}-\d{2}$/.test(r.expires || "") && !$("i-exp").value) { $("i-exp").value = r.expires; toast("Expiry date read from the photo. Please check it."); }
     } catch (err) { toast(sampleErr(err)); }
     b.disabled = false; b.textContent = "Suggest name from photo";
   };
@@ -852,12 +887,12 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     }
     let photo = "";
     if (pending) { $("i-save").disabled = true; photo = await uploadPhoto(pending.blob); $("i-save").disabled = false; if (!photo) return; }
-    const ok = await addItem({ name, qty: Math.max(1, parseInt($("i-qty").value, 10) || 1), locationId, category: $("i-cat").value.trim(), note: $("i-note").value.trim(), photo });
+    const ok = await addItem({ name, qty: Math.max(1, parseInt($("i-qty").value, 10) || 1), locationId, category: $("i-cat").value.trim(), note: $("i-note").value.trim(), expires: $("i-exp").value || "", photo });
     if (!ok) dropPhoto(photo);
     if (ok) {
       setPending(null);
       toast(`Saved ${name} → ${S.locs.get(locationId)?.code}`);
-      $("i-name").value = ""; $("i-qty").value = 1; $("i-note").value = ""; f.dataset.ack = ""; $("i-msg").textContent = "";
+      $("i-name").value = ""; $("i-qty").value = 1; $("i-note").value = ""; $("i-exp").value = ""; f.dataset.ack = ""; $("i-msg").textContent = "";
       renderItemDup(); $("i-name").focus(); // keep location + category for fast entry
     }
   });
