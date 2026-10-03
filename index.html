@@ -252,9 +252,10 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
             <div class="actions">
               <label class="btn sm" for="i-photo-in" id="i-photo-lbl">Add photo</label>
               <input type="file" id="i-photo-in" accept="image/*" capture="environment" hidden>
-              <button type="button" class="btn sm" id="i-suggest" hidden>Read photo again</button>
+              <button type="button" class="btn sm" id="i-suggest" hidden>✨ Suggest from photo</button>
               <button type="button" class="btn sm danger" id="i-photo-rm" hidden>Remove photo</button>
             </div>
+            <div class="small" id="i-photo-msg" role="status"></div>
           </div>
         </div>
         <div class="actions"><button class="btn primary" id="i-save" type="submit">Save item</button><span class="small muted" id="i-msg"></span></div>
@@ -876,19 +877,21 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     if (pending) URL.revokeObjectURL(pending.url);
     pending = blob ? { blob, url: URL.createObjectURL(blob) } : null;
     $("i-photo-img").hidden = !pending; if (pending) $("i-photo-img").src = pending.url;
-    $("i-photo-rm").hidden = !pending; $("i-suggest").hidden = !(pending && canSee);
+    $("i-photo-rm").hidden = !pending; $("i-suggest").hidden = !pending; if (!pending) $("i-photo-msg").textContent = "";
     $("i-photo-lbl").textContent = pending ? "Change photo" : "Add photo";
   }
-  $("i-photo-in").addEventListener("change", async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; setPending(await shrink(f)); if (canSee) readPhoto(false); });
+  $("i-photo-in").addEventListener("change", async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; setPending(await shrink(f)); if (sample) readPhoto(false); });
   $("i-photo-rm").onclick = () => setPending(null);
   $("i-suggest").onclick = () => readPhoto(true);
   // fills the form from the photo; on auto-read (overwrite=false) only empty fields are filled
   let reading = 0;
   async function readPhoto(overwrite) {
-    if (!pending || !sample) return;
+    const msg = $("i-photo-msg");
+    if (!pending) return;
+    if (!sample) { msg.textContent = "Photo reading isn't available here. Open the app in the Claude app or on claude.ai while signed in."; return; }
     const run = ++reading, blob = pending.blob;
     const b = $("i-suggest"); b.disabled = true; b.textContent = "Reading photo…";
-    $("i-msg").textContent = "Reading the photo. You can keep typing.";
+    msg.textContent = "Reading the photo… this takes a few seconds. You can keep typing.";
     try {
       const r = await sample.json('Name the main object in this photo for a home inventory list. Reply with only JSON like {"name":"Cordless power drill","category":"Tools","expires":""}: name is short and specific (2-5 words), category is one or two words, expires is the expiry or best-before date printed on the item as YYYY-MM-DD if one is clearly readable (use the last day of the month when only month and year are shown), otherwise an empty string.',
         { images: [blob], modelTier: "quick" });
@@ -896,9 +899,9 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       if (r && r.name && (overwrite || !$("i-name").value.trim())) { $("i-name").value = String(r.name).slice(0, 80); renderItemDup(); }
       if (r && r.category && !$("i-cat").value) $("i-cat").value = String(r.category).slice(0, 40);
       if (r && /^\d{4}-\d{2}-\d{2}$/.test(r.expires || "") && !$("i-exp").value) { $("i-exp").value = r.expires; toast("Expiry date read from the photo. Please check it."); }
-      $("i-msg").textContent = r && r.name ? "Filled in from the photo. Check it, choose where it's stored, then save." : "Couldn't recognise the item. Type the name instead.";
-    } catch (err) { if (run === reading) $("i-msg").textContent = sampleErr(err); }
-    finally { if (run === reading) { b.disabled = false; b.textContent = "Read photo again"; } }
+      msg.textContent = r && r.name ? (!overwrite && $("i-name").value.trim() !== String(r.name).slice(0, 80) ? `Claude suggests “${String(r.name).slice(0, 80)}”. Tap Suggest from photo to use it.` : "Filled in from the photo. Check it, choose where it's stored, then save.") : "Couldn't recognise the item. Try a closer photo or type the name.";
+    } catch (err) { if (run === reading) msg.textContent = sampleErr(err) + (err && err.code ? ` (${err.code})` : ""); }
+    finally { if (run === reading) { b.disabled = false; b.textContent = "✨ Suggest from photo"; } }
   }
 
   // register item
@@ -1046,7 +1049,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       sample = s; if (!s) return;
       const lim = await s.limits().catch(() => null);
       canSee = !!(lim && lim.images);
-      $("cam-find").hidden = !canSee; setPending(pending && pending.blob);
+      $("cam-find").hidden = false; setPending(pending && pending.blob);
     }).catch(() => {});
     const onErr = (e) => { $("banner").hidden = false; $("banner").textContent = e && e.code === "revoked" ? "Access to this inventory changed. Reload the page." : "Lost the connection to your inventory. Reload the page to reconnect."; };
     db.collection("locations").onSnapshot((snap) => {
