@@ -256,6 +256,8 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
               <button type="button" class="btn sm danger" id="i-photo-rm" hidden>Remove photo</button>
             </div>
             <div class="small" id="i-photo-msg" role="status"></div>
+            <div class="small muted" id="i-photo-diag">Photo reading: checking…</div>
+            <div class="actions" id="i-perm-row" hidden><button type="button" class="btn sm" id="i-perm">Open permissions</button></div>
           </div>
         </div>
         <div class="actions"><button class="btn primary" id="i-save" type="submit">Save item</button><span class="small muted" id="i-msg"></span></div>
@@ -449,7 +451,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       : c === "rate_limited" ? "Too many picture requests at once. Wait a minute and try again."
       : c === "images_unavailable" ? "This Claude app can't send photos to Claude yet (the iPhone app is one of these). Open the app's link in your phone's browser at claude.ai to use photo reading, or type the details. Your photo is still saved with the item."
       : c === "image_rejected" ? "Claude couldn't open this photo's format. Try taking it again with the camera."
-      : c === "cancelled" ? "Stopped." : "Couldn't read the photo. Try again.";
+      : c === "cancelled" ? "Stopped." : `Couldn't read the photo. Try again.${c ? " (" + c + ")" : ""}`;
   }
 
   // ---------- expiry ----------
@@ -884,6 +886,22 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
   $("i-photo-in").addEventListener("change", async (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return; setPending(await shrink(f)); if (sample && !noImages) readPhoto(false); });
   $("i-photo-rm").onclick = () => setPending(null);
   $("i-suggest").onclick = () => readPhoto(true);
+  let perms = null, diag = "checking";
+  async function updateDiag() {
+    let text;
+    if (!sample) text = "not available in this view (Claude isn't connected to this page)";
+    else {
+      let st = null; try { st = perms ? await perms.state("sample") : null; } catch (e) {}
+      if (st === "denied") { text = "blocked. Tap Open permissions and allow Claude for this page."; $("i-perm-row").hidden = !perms; }
+      else if (st === "unavailable") text = "not available in this browser or app";
+      else if (!canSee) text = "this browser or app may not support sending photos to Claude. Tap Suggest to try anyway.";
+      else if (st === "prompt") text = "ready. You'll be asked once to allow it.";
+      else text = "ready";
+      diag = st || "unknown";
+    }
+    $("i-photo-diag").textContent = "Photo reading: " + text;
+  }
+  $("i-perm").onclick = async () => { try { await perms.manage(); } catch (e) { toast("Open the Permissions option in the artifact's menu at the top."); } updateDiag(); };
   // fills the form from the photo; on auto-read (overwrite=false) only empty fields are filled
   let reading = 0, noImages = false; // set after images_unavailable so we stop auto-reading
   async function readPhoto(overwrite) {
@@ -893,6 +911,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     const run = ++reading, blob = pending.blob;
     const b = $("i-suggest"); b.disabled = true; b.textContent = "Reading photo…";
     msg.textContent = "Reading the photo… this takes a few seconds. You can keep typing.";
+    const slow = setTimeout(() => { if (run === reading) { msg.textContent = "Still waiting for Claude. If no permission prompt appeared, tap Open permissions, allow Claude, then tap Suggest again."; $("i-perm-row").hidden = !perms; } }, 30000);
     try {
       const r = await sample.json('Name the main object in this photo for a home inventory list. Reply with only JSON like {"name":"Cordless power drill","category":"Tools","expires":""}: name is short and specific (2-5 words), category is one or two words, expires is the expiry or best-before date printed on the item as YYYY-MM-DD if one is clearly readable (use the last day of the month when only month and year are shown), otherwise an empty string.',
         { images: [blob], modelTier: "quick" });
@@ -902,7 +921,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
       if (r && /^\d{4}-\d{2}-\d{2}$/.test(r.expires || "") && !$("i-exp").value) { $("i-exp").value = r.expires; toast("Expiry date read from the photo. Please check it."); }
       msg.textContent = r && r.name ? (!overwrite && $("i-name").value.trim() !== String(r.name).slice(0, 80) ? `Claude suggests “${String(r.name).slice(0, 80)}”. Tap Suggest from photo to use it.` : "Filled in from the photo. Check it, choose where it's stored, then save.") : "Couldn't recognise the item. Try a closer photo or type the name.";
     } catch (err) { if (err && err.code === "images_unavailable") noImages = true; if (run === reading) msg.textContent = sampleErr(err); }
-    finally { if (run === reading) { b.disabled = false; b.textContent = "✨ Suggest from photo"; } }
+    finally { clearTimeout(slow); if (run === reading) { b.disabled = false; b.textContent = "✨ Suggest from photo"; } updateDiag(); }
   }
 
   // register item
@@ -1046,11 +1065,12 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     }
     use("downloads").then((d) => { downloads = d; if (S.tab === "check") renderCheck(); }).catch(() => {});
     use("assets").then((a) => { assets = a; $("i-photo").hidden = !a; }).catch(() => {});
+    use("permissions").then((p) => { perms = p; }).catch(() => {});
     use("sample").then(async (s) => {
-      sample = s; if (!s) return;
+      sample = s; if (!s) { updateDiag(); return; }
       const lim = await s.limits().catch(() => null);
       canSee = !!(lim && lim.images);
-      $("cam-find").hidden = false; setPending(pending && pending.blob);
+      $("cam-find").hidden = false; setPending(pending && pending.blob); updateDiag();
     }).catch(() => {});
     const onErr = (e) => { $("banner").hidden = false; $("banner").textContent = e && e.code === "revoked" ? "Access to this inventory changed. Reload the page." : "Lost the connection to your inventory. Reload the page to reconnect."; };
     db.collection("locations").onSnapshot((snap) => {
