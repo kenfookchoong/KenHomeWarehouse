@@ -449,7 +449,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     const c = e && e.code;
     return c === "not_granted" ? "Picture features need your OK to use Claude. Allow it when asked, or reload to be asked again."
       : c === "rate_limited" ? "Too many picture requests at once. Wait a minute and try again."
-      : c === "images_unavailable" ? "This Claude app can't send photos to Claude yet (the iPhone app is one of these). Open the app's link in your phone's browser at claude.ai to use photo reading, or type the details. Your photo is still saved with the item."
+      : c === "images_unavailable" ? "Photo reading isn't supported on phones yet, in the Claude app or the phone's browser. It may work on claude.ai in a computer browser. For now, type the details. Your photo is still saved with the item."
       : c === "image_rejected" ? "Claude couldn't open this photo's format. Try taking it again with the camera."
       : c === "cancelled" ? "Stopped." : `Couldn't read the photo. Try again.${c ? " (" + c + ")" : ""}`;
   }
