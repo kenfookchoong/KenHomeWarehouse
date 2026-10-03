@@ -108,6 +108,7 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px dashed var(--line); background: transparent; border-radius: 99px; padding: 5px 11px; font-size: 13px; cursor: pointer; color: var(--muted); }
 .chip:hover { border-color: var(--accent); color: var(--ink); }
+.multi { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 .dup { border: 1.5px solid var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 12px; display: grid; gap: 8px; font-size: 14px; }
 .dup.hard { border-color: var(--bad-ink); background: var(--bad-bg); color: var(--bad-ink); }
@@ -179,6 +180,20 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
         </div>
         <div id="sub-dup"></div>
         <div class="chips" id="sub-chips"></div>
+        <div id="multi" class="multi" hidden>
+          <div class="small muted">Or add a whole set at once, numbered in the order you'd open them:</div>
+          <div class="actions">
+            <input id="m-count" class="in" type="number" min="2" max="20" value="4" aria-label="How many" style="width:76px">
+            <select id="m-type" class="in" aria-label="What" style="width:auto;flex:1">
+              <option>Drawer</option><option>Shelf</option><option>Box</option><option>Compartment</option><option>Door</option><option>Basket</option>
+            </select>
+            <select id="m-order" class="in" aria-label="Numbered from" style="width:auto;flex:1">
+              <option value="top">1 = top</option><option value="bottom">1 = bottom</option><option value="left">1 = left</option><option value="right">1 = right</option>
+            </select>
+            <button class="btn primary" id="m-add">Add set</button>
+          </div>
+          <div class="small muted" id="m-preview"></div>
+        </div>
       </div>
       <div class="panel" id="loc-manage" hidden>
         <h2 style="margin:0">Manage this location</h2>
@@ -452,7 +467,8 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
   function renderLocs() {
     const id = S.locId && S.locs.has(S.locId) ? S.locId : null; S.locId = id;
     const body = $("locs-body");
-    $("loc-tools").hidden = !id; $("loc-manage").hidden = !id;
+    $("loc-tools").hidden = !id; $("loc-manage").hidden = !id; $("multi").hidden = !id;
+    if (id) renderMulti();
     $("sub-title").textContent = id ? "Add a spot inside " + S.locs.get(id).name : "Add a room";
     $("sub-name").placeholder = id ? "e.g. Top shelf, Drawer 2, Blue box" : "e.g. Master bedroom";
     const used = new Set(childrenOf(id).map((l) => keyOf(l.name)));
@@ -702,6 +718,42 @@ textarea.in { min-height: 120px; resize: vertical; font-family: var(--f-mono); f
     const hit = $("sub-name").value.trim() && locSibling($("sub-name").value, S.locId);
     $("sub-dup").innerHTML = hit ? `<div class="dup hard"><div>${tag(hit.code)} <strong>${esc(hit.name)}</strong> already exists here.</div></div>` : "";
   });
+
+  // add a numbered set (drawers 1-4, top to bottom)
+  const ENDS = { top: ["top", "bottom"], bottom: ["bottom", "top"], left: ["left", "right"], right: ["right", "left"] };
+  function multiPlan() {
+    const pid = S.locId; if (!pid) return [];
+    const count = Math.min(20, Math.max(2, parseInt($("m-count").value, 10) || 2));
+    const type = $("m-type").value, ends = ENDS[$("m-order").value];
+    const tk = keyOf(type);
+    // continue numbering after any existing "Drawer N" here
+    let start = 0;
+    childrenOf(pid).forEach((l) => { const t = keyOf(l.name).split(" "); if (t[0] === tk && /^\d+$/.test(t[1] || "")) start = Math.max(start, +t[1]); });
+    const out = [];
+    for (let i = 1; i <= count; i++) {
+      const n = start + i;
+      const pos = start ? "" : i === 1 ? ` (${ends[0]})` : i === count ? ` (${ends[1]})` : "";
+      out.push(`${type} ${n}${pos}`);
+    }
+    return out;
+  }
+  function renderMulti() {
+    const p = multiPlan(); if (!p.length) return;
+    $("m-preview").textContent = "Will add: " + p.join(", ");
+  }
+  ["m-count", "m-type", "m-order"].forEach((k) => $(k).addEventListener("input", renderMulti));
+  $("m-add").onclick = async () => {
+    const pid = S.locId, names = multiPlan(); if (!pid || !names.length || !db) return;
+    const p = S.locs.get(pid); let max = 0;
+    childrenOf(pid).forEach((s) => { const m = /-(\d+)$/.exec(s.code || ""); if (m) max = Math.max(max, +m[1]); });
+    $("m-add").disabled = true; let n = 0;
+    for (const name of names) {
+      const code = (p.code || "X") + "-" + String(++max).padStart(2, "0");
+      if (await write(() => db.collection("locations").add({ name, parentId: pid, code, createdAt: now() }))) n++;
+    }
+    $("m-add").disabled = false;
+    toast(`Added ${n} spots to ${p.name}`);
+  };
 
   // rename / delete location
   $("loc-rename").addEventListener("input", () => {
